@@ -1,5 +1,11 @@
 # FaceBodyAI
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Node 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
+[![Vue 3](https://img.shields.io/badge/vue-3-brightgreen.svg)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com/)
+
 Real-time emotion and body language analysis using Vue.js frontend, FastAPI backend, and Azure OpenAI Vision API.
 
 ## 🎯 Features
@@ -29,6 +35,10 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
 - **Python** 3.8+
 - **Azure OpenAI** account with GPT-4 Vision deployment
 - Modern web browser with camera access
+
+## 🚀 Quick Start
+
+**New to the project?** Check out our [Quick Start Guide](docs/QUICKSTART.md) for step-by-step instructions!
 
 ## 🚀 Setup Instructions
 
