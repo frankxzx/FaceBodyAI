@@ -183,6 +183,9 @@ npm run build
 - In production, configure CORS to only allow specific origins
 - Consider implementing rate limiting on the API endpoint
 - Store Azure OpenAI credentials securely (use Azure Key Vault in production)
+- **Security Updates**: All dependencies are up-to-date with latest security patches
+  - FastAPI 0.109.1 (patched ReDoS vulnerability)
+  - python-multipart 0.0.18 (patched DoS and ReDoS vulnerabilities)
 
 ## 📝 Environment Variables
 
