@@ -6,35 +6,46 @@
 [![Vue 3](https://img.shields.io/badge/vue-3-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com/)
 
-Real-time emotion and body language analysis using Vue.js frontend, FastAPI backend, and Azure OpenAI Vision API.
+**Near real-time multimodal behavioral analysis using Fast Chain + Slow Chain architecture.**
+
+Analyzes human behavior (emotions, engagement, body language) with computer vision features and Azure OpenAI GPT-4o.
 
 ## 🎯 Features
 
-- **Real-time Video Capture**: Uses browser's `getUserMedia()` API to access webcam
-- **Automatic Frame Analysis**: Captures and analyzes video frames every 5 seconds
-- **AI-Powered Analysis**: Leverages Azure OpenAI Vision (GPT-4 Vision) for emotion and body language detection
-- **Modern UI**: Clean, responsive Vue 3 interface with real-time results display
-- **RESTful API**: FastAPI backend with automatic OpenAPI documentation
+### Fast Chain (~100ms) - Instant Feedback
+- **Motion Detection**: Real-time frame difference analysis
+- **Audio Detection**: Voice activity detection (VAD) and volume monitoring
+- **Visual Indicators**: Activity lights, motion levels, speaking status
+- **Pure Frontend**: No network latency, works offline
+
+### Slow Chain (~3-5 seconds) - AI Insights
+- **CV Feature Extraction**: Head pose (pitch/yaw/roll), eye gaze, motion level using MediaPipe
+- **Multimodal AI Analysis**: GPT-4o interprets CV features + visual cues + audio context
+- **Behavioral Insights**: Emotion, engagement level, confidence, and explanations
+- **Quantified & Stable**: CV features provide reliable data for AI interpretation
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐         ┌─────────────────┐         ┌──────────────────┐
-│   Vue Frontend  │────────▶│  FastAPI Backend│────────▶│ Azure OpenAI     │
-│  (Port 5173)    │  JPEG   │   (Port 8000)   │  Base64 │ Vision API       │
-│                 │◀────────│                 │◀────────│                  │
-│ - getUserMedia()│  JSON   │ - /api/frame    │  JSON   │ - GPT-4 Vision   │
-│ - Canvas        │         │ - CORS enabled  │         │ - Multimodal AI  │
-│ - 5s interval   │         │                 │         │                  │
-└─────────────────┘         └─────────────────┘         └──────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    FAST CHAIN (Frontend, ~100ms)                 │
+│  Motion Detection + Audio Detection → Visual Indicators          │
+└─────────────────────────────────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   SLOW CHAIN (Backend, ~3-5s)                    │
+│  Image → CV Features (MediaPipe) → GPT-4o → Behavioral Analysis  │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**See [Multimodal Architecture Documentation](docs/MULTIMODAL_ARCHITECTURE.md) for detailed design.**
 
 ## 📋 Prerequisites
 
 - **Node.js** 18+ and npm
 - **Python** 3.8+
 - **Azure OpenAI** account with GPT-4 Vision deployment
-- Modern web browser with camera access
+- Modern web browser with camera and microphone access
 
 ## 🚀 Quick Start
 
@@ -107,33 +118,46 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
 
 2. **Open the frontend** in your browser at `http://localhost:5173`
 
-3. **Click "Start Camera"** to grant camera access
+3. **Click "Start Camera"** to grant camera and microphone access
 
-4. **Click "Start Analysis"** to begin automatic frame capture and analysis
+4. **Watch the Fast Chain indicators** - See real-time activity, motion, and speaking status
 
-5. **View results** - The app will:
-   - Capture a frame from your video every 5 seconds
-   - Send it to the backend API
-   - Display emotion and body language analysis in real-time
+5. **Click "Start Analysis"** to begin slow chain behavioral analysis
+
+6. **View results** - The app will:
+   - **Fast Chain**: Update activity indicators every ~100ms (motion, audio)
+   - **Slow Chain**: Analyze frame + CV features every 4 seconds with GPT-4o
+   - Display emotion, engagement, confidence, and behavioral explanation
+   - Show extracted CV features (head pose, eye gaze, motion)
 
 ## 🔧 API Endpoints
 
 ### `POST /api/frame`
 
-Analyze a video frame for emotions and body language.
+Analyze a video frame for behavioral insights (Slow Chain endpoint).
 
 **Request:**
 - Method: `POST`
 - Content-Type: `multipart/form-data`
-- Body: Image file (JPEG)
+- Body: 
+  - `file`: Image file (JPEG)
+  - `audio_speaking`: "true" or "false" (optional)
+  - `audio_volume`: "low", "medium", or "high" (optional)
 
 **Response:**
 ```json
 {
-  "emotion": "happy",
-  "body_language": "relaxed",
-  "details": "Person appears cheerful with open posture",
-  "confidence": "high"
+  "emotion": "focused",
+  "engagement": "high",
+  "confidence": "medium",
+  "explanation": "Person maintains forward gaze with slight head tilt, indicating active listening.",
+  "cv_features": {
+    "head_pitch": -8,
+    "head_yaw": 2,
+    "head_roll": -3,
+    "eye_gaze": "on_screen",
+    "motion_level": "medium"
+  }
 }
 ```
 
@@ -155,6 +179,8 @@ Check API health and Azure OpenAI configuration status.
 
 The backend uses:
 - **FastAPI**: Modern, fast web framework for building APIs
+- **MediaPipe**: Computer vision for facial landmark detection
+- **OpenCV**: Image processing for motion detection
 - **OpenAI Python SDK**: For Azure OpenAI integration
 - **Uvicorn**: ASGI server for running FastAPI
 
@@ -168,6 +194,8 @@ uvicorn main:app --reload --port 8000
 
 The frontend uses:
 - **Vue 3**: Progressive JavaScript framework with Composition API
+- **Web Audio API**: For real-time audio analysis (fast chain)
+- **Canvas API**: For frame difference motion detection (fast chain)
 - **Vite**: Next-generation frontend tooling
 - **Axios**: HTTP client for API requests
 
@@ -176,6 +204,13 @@ To build for production:
 cd frontend
 npm run build
 ```
+
+## 📚 Documentation
+
+- [Multimodal Architecture](docs/MULTIMODAL_ARCHITECTURE.md) - Detailed architecture documentation
+- [Quick Start Guide](docs/QUICKSTART.md) - Step-by-step setup instructions
+- [API Documentation](docs/API.md) - API reference
+- [Usage Guide](docs/USAGE.md) - User guide
 
 ## 🔒 Security Notes
 
