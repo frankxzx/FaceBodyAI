@@ -1,21 +1,39 @@
 <template>
   <div>
-    <h1>FaceBodyAI - Real-time Emotion & Body Language Analysis</h1>
+    <h1>FaceBodyAI - Multimodal Behavioral Analysis</h1>
     
     <div class="container">
       <div class="info-box">
-        <h4>How it works:</h4>
-        <p>📹 Camera captures video in real-time</p>
-        <p>⏱️ Frame is sent to AI every 5 seconds for analysis</p>
-        <p>🤖 Azure OpenAI Vision analyzes emotions and body language</p>
-        <p>📊 Results are displayed below in real-time</p>
+        <h4>Architecture: Fast Chain + Slow Chain</h4>
+        <p>⚡ <strong>Fast Chain (~100ms)</strong>: Local motion & audio detection for instant feedback</p>
+        <p>🧠 <strong>Slow Chain (~3-5s)</strong>: CV features + GPT-4o for behavioral insights</p>
+        <p>🎯 Near real-time multimodal behavioral analysis</p>
+      </div>
+
+      <!-- Fast Chain Status Indicators -->
+      <div v-if="isStreaming" class="fast-chain-section">
+        <h3>⚡ Fast Chain (Live Status)</h3>
+        <div class="fast-chain-indicators">
+          <div class="indicator" :class="fastChainStatus.activity">
+            <div class="indicator-light"></div>
+            <span>{{ fastChainStatus.activity === 'active' ? '🟢 Active' : '🔵 Idle' }}</span>
+          </div>
+          <div class="indicator">
+            <div class="indicator-light" :class="'motion-' + fastChainStatus.motion"></div>
+            <span>Motion: {{ fastChainStatus.motion }}</span>
+          </div>
+          <div class="indicator">
+            <div class="indicator-light" :class="fastChainStatus.speaking ? 'speaking' : ''"></div>
+            <span>{{ fastChainStatus.speaking ? '🎤 Speaking' : '🔇 Silent' }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="video-section">
         <div class="video-container">
           <h2>Live Video Feed</h2>
           <video ref="videoElement" autoplay playsinline></video>
-          <canvas ref="canvasElement"></canvas>
+          <canvas ref="canvasElement" style="display: none;"></canvas>
         </div>
         
         <div class="video-container">
@@ -38,33 +56,61 @@
         {{ statusMessage }}
       </div>
 
+      <!-- Slow Chain Results -->
       <div v-if="latestAnalysis" class="results-section">
-        <h2>Latest Analysis Results</h2>
+        <h2>🧠 Slow Chain Analysis Results</h2>
+        
         <div class="results-grid">
           <div class="result-card">
-            <h3>Emotion</h3>
+            <h3>😊 Emotion</h3>
             <div class="value">{{ latestAnalysis.emotion }}</div>
           </div>
           
-          <div class="result-card">
-            <h3>Body Language</h3>
-            <div class="value">{{ latestAnalysis.body_language }}</div>
+          <div class="result-card" v-if="latestAnalysis.engagement">
+            <h3>🎯 Engagement</h3>
+            <div class="value">{{ latestAnalysis.engagement }}</div>
           </div>
           
           <div class="result-card" v-if="latestAnalysis.confidence">
-            <h3>Confidence</h3>
+            <h3>💪 Confidence</h3>
             <div class="value">{{ latestAnalysis.confidence }}</div>
           </div>
         </div>
         
-        <div v-if="latestAnalysis.details" style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
-          <h3 style="margin-bottom: 10px;">Analysis Details</h3>
-          <p style="color: #555; line-height: 1.6;">{{ latestAnalysis.details }}</p>
+        <div v-if="latestAnalysis.explanation" class="explanation-box">
+          <h3>📝 Behavioral Insight</h3>
+          <p>{{ latestAnalysis.explanation }}</p>
+        </div>
+
+        <div v-if="latestAnalysis.cv_features" class="cv-features-box">
+          <h3>📊 CV Features (Quantified)</h3>
+          <div class="cv-features-grid">
+            <div class="cv-feature">
+              <span class="label">Head Pitch:</span>
+              <span class="value">{{ latestAnalysis.cv_features.head_pitch }}°</span>
+            </div>
+            <div class="cv-feature">
+              <span class="label">Head Yaw:</span>
+              <span class="value">{{ latestAnalysis.cv_features.head_yaw }}°</span>
+            </div>
+            <div class="cv-feature">
+              <span class="label">Head Roll:</span>
+              <span class="value">{{ latestAnalysis.cv_features.head_roll }}°</span>
+            </div>
+            <div class="cv-feature">
+              <span class="label">Eye Gaze:</span>
+              <span class="value">{{ latestAnalysis.cv_features.eye_gaze }}</span>
+            </div>
+            <div class="cv-feature">
+              <span class="label">Motion Level:</span>
+              <span class="value">{{ latestAnalysis.cv_features.motion_level }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
       <div v-if="isAnalyzing && !latestAnalysis" class="loading">
-        <p>🔄 Analyzing frame... Please wait</p>
+        <p>🔄 Running slow chain analysis... Please wait</p>
       </div>
     </div>
   </div>
@@ -85,8 +131,19 @@ export default {
     const statusMessage = ref('Click "Start Camera" to begin')
     const lastFrameUrl = ref(null)
     
+    // Fast chain status
+    const fastChainStatus = ref({
+      activity: 'idle',
+      motion: 'low',
+      speaking: false
+    })
+    
     let mediaStream = null
     let captureInterval = null
+    let fastChainInterval = null
+    let audioContext = null
+    let analyser = null
+    let previousFrame = null
     
     const statusClass = computed(() => {
       if (isAnalyzing.value) return 'active'
@@ -94,10 +151,85 @@ export default {
       return 'idle'
     })
 
-    // Start camera stream
+    // Fast Chain: Motion Detection (frame diff)
+    const detectMotion = () => {
+      const video = videoElement.value
+      const canvas = canvasElement.value
+      
+      if (!video || !canvas || video.videoWidth === 0) return 'low'
+      
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      
+      const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      
+      if (!previousFrame) {
+        previousFrame = currentFrame
+        return 'low'
+      }
+      
+      // Calculate frame difference
+      let diff = 0
+      const pixels = currentFrame.data.length / 4
+      
+      for (let i = 0; i < currentFrame.data.length; i += 4) {
+        const rDiff = Math.abs(currentFrame.data[i] - previousFrame.data[i])
+        const gDiff = Math.abs(currentFrame.data[i + 1] - previousFrame.data[i + 1])
+        const bDiff = Math.abs(currentFrame.data[i + 2] - previousFrame.data[i + 2])
+        
+        if (rDiff + gDiff + bDiff > 50) {
+          diff++
+        }
+      }
+      
+      previousFrame = currentFrame
+      
+      const motionPercent = (diff / pixels) * 100
+      
+      if (motionPercent < 1) return 'low'
+      if (motionPercent < 5) return 'medium'
+      return 'high'
+    }
+
+    // Fast Chain: Audio Detection (volume/VAD)
+    const detectAudio = () => {
+      if (!analyser) return { speaking: false, volume: 'low' }
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      analyser.getByteFrequencyData(dataArray)
+      
+      // Calculate average volume
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+      
+      const speaking = average > 20
+      let volume = 'low'
+      if (average > 40) volume = 'high'
+      else if (average > 20) volume = 'medium'
+      
+      return { speaking, volume }
+    }
+
+    // Fast Chain: Update status every ~100ms
+    const runFastChain = () => {
+      if (!isStreaming.value) return
+      
+      const motion = detectMotion()
+      const audio = detectAudio()
+      
+      fastChainStatus.value = {
+        activity: (motion !== 'low' || audio.speaking) ? 'active' : 'idle',
+        motion: motion,
+        speaking: audio.speaking
+      }
+    }
+
+    // Start camera stream with audio
     const startCamera = async () => {
       try {
-        statusMessage.value = 'Requesting camera access...'
+        statusMessage.value = 'Requesting camera and microphone access...'
         
         const constraints = {
           video: {
@@ -105,13 +237,24 @@ export default {
             height: { ideal: 720 },
             facingMode: 'user'
           },
-          audio: false
+          audio: true
         }
         
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
         videoElement.value.srcObject = mediaStream
+        
+        // Setup audio analysis
+        audioContext = new (window.AudioContext || window.webkitAudioContext)()
+        const source = audioContext.createMediaStreamSource(mediaStream)
+        analyser = audioContext.createAnalyser()
+        analyser.fftSize = 256
+        source.connect(analyser)
+        
         isStreaming.value = true
         statusMessage.value = 'Camera started. Ready to analyze!'
+        
+        // Start fast chain
+        fastChainInterval = setInterval(runFastChain, 100)
         
       } catch (error) {
         console.error('Error accessing camera:', error)
@@ -128,9 +271,22 @@ export default {
       if (videoElement.value) {
         videoElement.value.srcObject = null
       }
+      if (audioContext) {
+        audioContext.close()
+        audioContext = null
+      }
+      if (fastChainInterval) {
+        clearInterval(fastChainInterval)
+        fastChainInterval = null
+      }
       isStreaming.value = false
       stopAnalysis()
       statusMessage.value = 'Camera stopped'
+      fastChainStatus.value = {
+        activity: 'idle',
+        motion: 'low',
+        speaking: false
+      }
     }
 
     // Capture frame from video and convert to JPEG
@@ -140,28 +296,24 @@ export default {
       
       if (!video || !canvas) return null
       
-      // Set canvas dimensions to match video
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       
-      // Draw current video frame to canvas
       const ctx = canvas.getContext('2d')
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
       
-      // Convert canvas to blob (JPEG)
       return new Promise((resolve) => {
         canvas.toBlob((blob) => {
-          // Also create a URL for display
           lastFrameUrl.value = canvas.toDataURL('image/jpeg', 0.8)
           resolve(blob)
         }, 'image/jpeg', 0.8)
       })
     }
 
-    // Send frame to backend for analysis
+    // Slow Chain: Send frame + audio context to backend
     const analyzeFrame = async () => {
       try {
-        statusMessage.value = '📸 Capturing frame...'
+        statusMessage.value = '📸 Capturing frame for slow chain analysis...'
         const frameBlob = await captureFrame()
         
         if (!frameBlob) {
@@ -169,11 +321,16 @@ export default {
           return
         }
 
-        statusMessage.value = '🔄 Analyzing with Azure OpenAI Vision...'
+        statusMessage.value = '🔄 Running slow chain (CV + GPT-4o)...'
         
-        // Create FormData and append the image
+        // Get current audio status from fast chain
+        const audio = detectAudio()
+        
+        // Create FormData and append the image + audio metadata
         const formData = new FormData()
         formData.append('file', frameBlob, 'frame.jpg')
+        formData.append('audio_speaking', audio.speaking.toString())
+        formData.append('audio_volume', audio.speaking ? 'medium' : 'low')
         
         // Send to backend API
         const response = await axios.post('/api/frame', formData, {
@@ -183,7 +340,7 @@ export default {
         })
         
         latestAnalysis.value = response.data
-        statusMessage.value = '✅ Analysis complete! Next capture in 5 seconds...'
+        statusMessage.value = '✅ Slow chain analysis complete! Next in 3-5 seconds...'
         
       } catch (error) {
         console.error('Error analyzing frame:', error)
@@ -191,7 +348,7 @@ export default {
       }
     }
 
-    // Start periodic frame analysis
+    // Start periodic frame analysis (slow chain every 3-5 seconds)
     const startAnalysis = () => {
       if (!isStreaming.value) {
         statusMessage.value = 'Please start camera first'
@@ -199,15 +356,15 @@ export default {
       }
       
       isAnalyzing.value = true
-      statusMessage.value = 'Analysis started! Capturing every 5 seconds...'
+      statusMessage.value = 'Analysis started! Slow chain runs every 4 seconds...'
       
       // Capture first frame immediately
       analyzeFrame()
       
-      // Then capture every 5 seconds
+      // Then capture every 4 seconds (configurable between 3-5s)
       captureInterval = setInterval(() => {
         analyzeFrame()
-      }, 5000)
+      }, 4000)
     }
 
     // Stop periodic frame analysis
@@ -236,6 +393,7 @@ export default {
       statusMessage,
       statusClass,
       lastFrameUrl,
+      fastChainStatus,
       startCamera,
       stopCamera,
       startAnalysis,
@@ -251,4 +409,129 @@ h2 {
   color: #333;
   font-size: 1.2rem;
 }
+
+.fast-chain-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.fast-chain-section h3 {
+  margin: 0 0 15px 0;
+  font-size: 1.3rem;
+}
+
+.fast-chain-indicators {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 10px 15px;
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.indicator-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #cbd5e0;
+  transition: all 0.3s ease;
+}
+
+.indicator.active .indicator-light {
+  background: #48bb78;
+  box-shadow: 0 0 10px #48bb78;
+}
+
+.indicator-light.motion-low {
+  background: #cbd5e0;
+}
+
+.indicator-light.motion-medium {
+  background: #f6ad55;
+  box-shadow: 0 0 8px #f6ad55;
+}
+
+.indicator-light.motion-high {
+  background: #fc8181;
+  box-shadow: 0 0 10px #fc8181;
+}
+
+.indicator-light.speaking {
+  background: #4299e1;
+  box-shadow: 0 0 10px #4299e1;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.explanation-box {
+  margin-top: 20px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  border-radius: 10px;
+}
+
+.explanation-box h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.1rem;
+}
+
+.explanation-box p {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 1rem;
+}
+
+.cv-features-box {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  border: 2px solid #e2e8f0;
+}
+
+.cv-features-box h3 {
+  margin: 0 0 15px 0;
+  color: #2d3748;
+}
+
+.cv-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.cv-feature {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.cv-feature .label {
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.cv-feature .value {
+  color: #2d3748;
+  font-family: 'Courier New', monospace;
+}
 </style>
+
