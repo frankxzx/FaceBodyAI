@@ -292,7 +292,14 @@ export default {
         
         // Check for supported MIME types
         const supportedTypes = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/ogg']
-        audioMimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'audio/webm'
+        audioMimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type))
+        
+        if (!audioMimeType) {
+          // No supported format found, show error
+          statusMessage.value = 'Error: Browser does not support audio recording'
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
         
         audioChunks = []
         mediaRecorder = new MediaRecorder(stream, {

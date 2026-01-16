@@ -1,12 +1,13 @@
+import base64
+import json
+import logging
+import os
+from typing import Optional
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import os
-import base64
 from openai import AzureOpenAI
-from typing import Optional
-import logging
-import json
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -208,14 +209,23 @@ async def analyze_audio(file: UploadFile = File(...)):
         # Encode audio to base64
         base64_audio = base64.b64encode(audio_data).decode('utf-8')
         
-        # Determine audio format from content type
+        # Determine audio format from content type using dictionary mapping
+        audio_format_mapping = {
+            "webm": "webm",
+            "mp3": "mp3",
+            "wav": "wav",
+            "ogg": "ogg",
+            "mp4": "mp4"
+        }
+        
+        # Default to wav if no match found
         audio_format = "wav"
-        if "webm" in file.content_type:
-            audio_format = "webm"
-        elif "mp3" in file.content_type:
-            audio_format = "mp3"
-        elif "wav" in file.content_type:
-            audio_format = "wav"
+        for format_key, format_value in audio_format_mapping.items():
+            if format_key in file.content_type.lower():
+                audio_format = format_value
+                break
+        
+        logger.info(f"Detected audio format: {audio_format} from content type: {file.content_type}")
         
         # Call Azure OpenAI Audio API
         response = client.chat.completions.create(
