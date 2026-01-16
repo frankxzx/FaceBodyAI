@@ -6,13 +6,14 @@
 [![Vue 3](https://img.shields.io/badge/vue-3-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com/)
 
-Real-time emotion and body language analysis using Vue.js frontend, FastAPI backend, and Azure OpenAI Vision API.
+Real-time emotion, body language, and voice analysis using Vue.js frontend, FastAPI backend, and Azure OpenAI Vision & Audio APIs.
 
 ## 🎯 Features
 
 - **Real-time Video Capture**: Uses browser's `getUserMedia()` API to access webcam
 - **Automatic Frame Analysis**: Captures and analyzes video frames every 5 seconds
-- **AI-Powered Analysis**: Leverages Azure OpenAI Vision (GPT-4 Vision) for emotion and body language detection
+- **AI-Powered Vision Analysis**: Leverages Azure OpenAI Vision (GPT-4 Vision) for emotion and body language detection
+- **Audio Recording & Analysis**: Records and analyzes voice using GPT-4o Audio for emotional state, tone, confidence, and vocal cues
 - **Modern UI**: Clean, responsive Vue 3 interface with real-time results display
 - **RESTful API**: FastAPI backend with automatic OpenAPI documentation
 
@@ -21,11 +22,11 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
 ```
 ┌─────────────────┐         ┌─────────────────┐         ┌──────────────────┐
 │   Vue Frontend  │────────▶│  FastAPI Backend│────────▶│ Azure OpenAI     │
-│  (Port 5173)    │  JPEG   │   (Port 8000)   │  Base64 │ Vision API       │
+│  (Port 5173)    │  JPEG   │   (Port 8000)   │  Base64 │ Vision & Audio   │
 │                 │◀────────│                 │◀────────│                  │
 │ - getUserMedia()│  JSON   │ - /api/frame    │  JSON   │ - GPT-4 Vision   │
-│ - Canvas        │         │ - CORS enabled  │         │ - Multimodal AI  │
-│ - 5s interval   │         │                 │         │                  │
+│ - Canvas        │  Audio  │ - /api/audio    │         │ - GPT-4o Audio   │
+│ - MediaRecorder │         │ - CORS enabled  │         │ - Multimodal AI  │
 └─────────────────┘         └─────────────────┘         └──────────────────┘
 ```
 
@@ -33,8 +34,8 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
 
 - **Node.js** 18+ and npm
 - **Python** 3.8+
-- **Azure OpenAI** account with GPT-4 Vision deployment
-- Modern web browser with camera access
+- **Azure OpenAI** account with GPT-4 Vision and GPT-4o Audio deployments
+- Modern web browser with camera and microphone access
 
 ## 🚀 Quick Start
 
@@ -71,6 +72,7 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
    AZURE_OPENAI_API_KEY=your-api-key-here
    AZURE_OPENAI_DEPLOYMENT=gpt-4-vision
    AZURE_OPENAI_API_VERSION=2024-02-15-preview
+   AZURE_OPENAI_AUDIO_DEPLOYMENT=gpt-4o-audio-preview
    ```
 
 5. Run the backend server:
@@ -103,6 +105,8 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
 
 ## 📖 Usage
 
+### Video Analysis
+
 1. **Start both servers** (backend on port 8000, frontend on port 5173)
 
 2. **Open the frontend** in your browser at `http://localhost:5173`
@@ -115,6 +119,22 @@ Real-time emotion and body language analysis using Vue.js frontend, FastAPI back
    - Capture a frame from your video every 5 seconds
    - Send it to the backend API
    - Display emotion and body language analysis in real-time
+
+### Audio Analysis
+
+1. **Click "Start Recording"** to grant microphone access and begin recording
+
+2. **Speak naturally** - the audio will be captured
+
+3. **Click "Stop Recording & Analyze"** to end recording and analyze the audio
+
+4. **View results** - The app will display:
+   - Emotional state (happy, sad, anxious, calm, etc.)
+   - Tone (warm, professional, assertive, etc.)
+   - Confidence level (high/medium/low)
+   - Reasoning behind the analysis
+   - Notable vocal cues (pitch variations, speech rate, etc.)
+   - Original voice characteristics (deep, soft, loud, etc.)
 
 ## 🔧 API Endpoints
 
@@ -134,6 +154,27 @@ Analyze a video frame for emotions and body language.
   "body_language": "relaxed",
   "details": "Person appears cheerful with open posture",
   "confidence": "high"
+}
+```
+
+### `POST /api/audio`
+
+Analyze an audio recording for emotional state, tone, confidence, and vocal characteristics.
+
+**Request:**
+- Method: `POST`
+- Content-Type: `multipart/form-data`
+- Body: Audio file (webm, mp3, wav, ogg)
+
+**Response:**
+```json
+{
+  "emotional_state": "calm",
+  "tone": "professional",
+  "confidence": "high",
+  "reasoning": "Speaker demonstrates steady vocal patterns with clear articulation",
+  "notable_vocal_cues": "Consistent pitch, moderate speech rate, clear pronunciation",
+  "original_voice": "Deep, clear voice with good projection"
 }
 ```
 
@@ -197,6 +238,7 @@ npm run build
 | `AZURE_OPENAI_API_KEY` | Your Azure OpenAI API key | `abc123...` |
 | `AZURE_OPENAI_DEPLOYMENT` | Your GPT-4 Vision deployment name | `gpt-4-vision` |
 | `AZURE_OPENAI_API_VERSION` | API version to use | `2024-02-15-preview` |
+| `AZURE_OPENAI_AUDIO_DEPLOYMENT` | Your GPT-4o Audio deployment name | `gpt-4o-audio-preview` |
 
 ## 🧪 Testing Without Azure OpenAI
 
