@@ -27,6 +27,7 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4-vision")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+AZURE_OPENAI_AUDIO_DEPLOYMENT = os.getenv("AZURE_OPENAI_AUDIO_DEPLOYMENT", "gpt-4o-audio-preview")
 
 # Initialize Azure OpenAI client
 client = None
@@ -43,12 +44,21 @@ class AnalysisResponse(BaseModel):
     details: Optional[str] = None
     confidence: Optional[str] = None
 
+class AudioAnalysisResponse(BaseModel):
+    emotional_state: str
+    tone: str
+    confidence: str
+    reasoning: str
+    notable_vocal_cues: str
+    original_voice: Optional[str] = None
+
 @app.get("/")
 async def root():
     return {
         "message": "FaceBodyAI API is running",
         "endpoints": {
-            "/api/frame": "POST - Analyze video frame for emotions and body language"
+            "/api/frame": "POST - Analyze video frame for emotions and body language",
+            "/api/audio": "POST - Analyze audio for emotional state, tone, confidence, and vocal cues"
         }
     }
 
@@ -163,6 +173,125 @@ Respond in JSON format with keys: emotion, body_language, details (brief descrip
     except Exception as e:
         logger.error(f"Error analyzing frame: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing frame: {str(e)}")
+
+@app.post("/api/audio", response_model=AudioAnalysisResponse)
+async def analyze_audio(file: UploadFile = File(...)):
+    """
+    Analyze an audio file for emotional state, tone, confidence, and vocal cues.
+    
+    Args:
+        file: Audio file (webm, mp3, wav, etc.)
+        
+    Returns:
+        JSON with emotional_state, tone, confidence, reasoning, notable_vocal_cues, and original_voice analysis
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("audio/"):
+            raise HTTPException(status_code=400, detail="File must be an audio file")
+        
+        # Read audio data
+        audio_data = await file.read()
+        
+        # Check if Azure OpenAI client is configured
+        if not client:
+            logger.warning("Azure OpenAI not configured, returning mock response")
+            return AudioAnalysisResponse(
+                emotional_state="neutral",
+                tone="calm",
+                confidence="medium",
+                reasoning="Azure OpenAI API not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables.",
+                notable_vocal_cues="N/A",
+                original_voice="N/A"
+            )
+        
+        # Encode audio to base64
+        base64_audio = base64.b64encode(audio_data).decode('utf-8')
+        
+        # Determine audio format from content type
+        audio_format = "wav"
+        if "webm" in file.content_type:
+            audio_format = "webm"
+        elif "mp3" in file.content_type:
+            audio_format = "mp3"
+        elif "wav" in file.content_type:
+            audio_format = "wav"
+        
+        # Call Azure OpenAI Audio API
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_AUDIO_DEPLOYMENT,
+            modalities=["text"],
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at analyzing human voice and speech patterns. Provide detailed, accurate analysis of emotional state, tone, confidence level, and notable vocal characteristics."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": """Analyze this audio recording and provide:
+1. emotional_state: The primary emotional state conveyed (e.g., happy, sad, neutral, anxious, excited, calm, stressed)
+2. tone: The tone of voice (e.g., warm, cold, professional, casual, assertive, hesitant)
+3. confidence: Level of confidence in speech (high/medium/low)
+4. reasoning: Brief explanation of your analysis
+5. notable_vocal_cues: Any notable vocal characteristics (e.g., pitch variations, speech rate, pauses, vocal tremors, clarity)
+6. original_voice: Description of the voice characteristics (e.g., deep, high-pitched, soft, loud)
+
+Respond in JSON format with these exact keys: emotional_state, tone, confidence, reasoning, notable_vocal_cues, original_voice"""
+                        },
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": base64_audio,
+                                "format": audio_format
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500,
+            temperature=0.3
+        )
+        
+        # Parse the response
+        analysis_text = response.choices[0].message.content
+        logger.info(f"Azure OpenAI audio response: {analysis_text}")
+        
+        # Try to parse as JSON
+        import json
+        try:
+            # Try to extract JSON from response
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_str = analysis_text[start_idx:end_idx]
+                analysis_json = json.loads(json_str)
+                return AudioAnalysisResponse(
+                    emotional_state=analysis_json.get("emotional_state", "unknown"),
+                    tone=analysis_json.get("tone", "unknown"),
+                    confidence=analysis_json.get("confidence", "medium"),
+                    reasoning=analysis_json.get("reasoning", ""),
+                    notable_vocal_cues=analysis_json.get("notable_vocal_cues", ""),
+                    original_voice=analysis_json.get("original_voice", "")
+                )
+        except json.JSONDecodeError:
+            pass
+        
+        # Fallback: return text as reasoning
+        return AudioAnalysisResponse(
+            emotional_state="unknown",
+            tone="unknown",
+            confidence="medium",
+            reasoning=analysis_text,
+            notable_vocal_cues="Unable to parse structured response",
+            original_voice=""
+        )
+        
+    except Exception as e:
+        logger.error(f"Error analyzing audio: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing audio: {str(e)}")
 
 @app.get("/health")
 async def health_check():

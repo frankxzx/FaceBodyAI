@@ -8,6 +8,7 @@
         <p>📹 Camera captures video in real-time</p>
         <p>⏱️ Frame is sent to AI every 5 seconds for analysis</p>
         <p>🤖 Azure OpenAI Vision analyzes emotions and body language</p>
+        <p>🎤 Audio is recorded and analyzed by GPT-4o Audio</p>
         <p>📊 Results are displayed below in real-time</p>
       </div>
 
@@ -32,6 +33,13 @@
         <button @click="stopCamera" :disabled="!isStreaming">Stop Camera</button>
         <button @click="startAnalysis" :disabled="!isStreaming || isAnalyzing">Start Analysis</button>
         <button @click="stopAnalysis" :disabled="!isAnalyzing">Stop Analysis</button>
+      </div>
+
+      <div class="controls" style="margin-top: 20px;">
+        <h3 style="margin-bottom: 10px;">🎤 Audio Analysis</h3>
+        <button @click="startAudioRecording" :disabled="isRecording">Start Recording</button>
+        <button @click="stopAudioRecording" :disabled="!isRecording">Stop Recording & Analyze</button>
+        <span v-if="isRecording" style="color: red; margin-left: 10px;">● Recording...</span>
       </div>
 
       <div class="status" :class="statusClass">
@@ -66,6 +74,45 @@
       <div v-if="isAnalyzing && !latestAnalysis" class="loading">
         <p>🔄 Analyzing frame... Please wait</p>
       </div>
+
+      <div v-if="latestAudioAnalysis" class="results-section" style="margin-top: 30px;">
+        <h2>Latest Audio Analysis Results</h2>
+        <div class="results-grid">
+          <div class="result-card">
+            <h3>Emotional State</h3>
+            <div class="value">{{ latestAudioAnalysis.emotional_state }}</div>
+          </div>
+          
+          <div class="result-card">
+            <h3>Tone</h3>
+            <div class="value">{{ latestAudioAnalysis.tone }}</div>
+          </div>
+          
+          <div class="result-card">
+            <h3>Confidence</h3>
+            <div class="value">{{ latestAudioAnalysis.confidence }}</div>
+          </div>
+          
+          <div class="result-card">
+            <h3>Original Voice</h3>
+            <div class="value">{{ latestAudioAnalysis.original_voice || 'N/A' }}</div>
+          </div>
+        </div>
+        
+        <div v-if="latestAudioAnalysis.reasoning" style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+          <h3 style="margin-bottom: 10px;">Reasoning</h3>
+          <p style="color: #555; line-height: 1.6;">{{ latestAudioAnalysis.reasoning }}</p>
+        </div>
+
+        <div v-if="latestAudioAnalysis.notable_vocal_cues" style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px;">
+          <h3 style="margin-bottom: 10px;">Notable Vocal Cues</h3>
+          <p style="color: #856404; line-height: 1.6;">{{ latestAudioAnalysis.notable_vocal_cues }}</p>
+        </div>
+      </div>
+
+      <div v-if="isAnalyzingAudio" class="loading">
+        <p>🔄 Analyzing audio... Please wait</p>
+      </div>
     </div>
   </div>
 </template>
@@ -84,6 +131,13 @@ export default {
     const latestAnalysis = ref(null)
     const statusMessage = ref('Click "Start Camera" to begin')
     const lastFrameUrl = ref(null)
+    
+    // Audio recording state
+    const isRecording = ref(false)
+    const isAnalyzingAudio = ref(false)
+    const latestAudioAnalysis = ref(null)
+    let mediaRecorder = null
+    let audioChunks = []
     
     let mediaStream = null
     let captureInterval = null
@@ -222,6 +276,85 @@ export default {
       }
     }
 
+    // Start audio recording
+    const startAudioRecording = async () => {
+      try {
+        statusMessage.value = 'Requesting microphone access...'
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 44100
+          } 
+        })
+        
+        audioChunks = []
+        mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'audio/webm'
+        })
+        
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data)
+          }
+        }
+        
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
+          await analyzeAudio(audioBlob)
+          
+          // Stop all tracks
+          stream.getTracks().forEach(track => track.stop())
+        }
+        
+        mediaRecorder.start()
+        isRecording.value = true
+        statusMessage.value = '🎤 Recording audio... Speak now!'
+        
+      } catch (error) {
+        console.error('Error accessing microphone:', error)
+        statusMessage.value = `Error accessing microphone: ${error.message}`
+      }
+    }
+
+    // Stop audio recording
+    const stopAudioRecording = () => {
+      if (mediaRecorder && isRecording.value) {
+        mediaRecorder.stop()
+        isRecording.value = false
+        statusMessage.value = 'Recording stopped. Analyzing audio...'
+      }
+    }
+
+    // Analyze audio
+    const analyzeAudio = async (audioBlob) => {
+      try {
+        isAnalyzingAudio.value = true
+        statusMessage.value = '🔄 Analyzing audio with GPT-4o Audio...'
+        
+        // Create FormData and append the audio
+        const formData = new FormData()
+        formData.append('file', audioBlob, 'recording.webm')
+        
+        // Send to backend API
+        const response = await axios.post('/api/audio', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        })
+        
+        latestAudioAnalysis.value = response.data
+        statusMessage.value = '✅ Audio analysis complete!'
+        
+      } catch (error) {
+        console.error('Error analyzing audio:', error)
+        statusMessage.value = `Error analyzing audio: ${error.response?.data?.detail || error.message}`
+      } finally {
+        isAnalyzingAudio.value = false
+      }
+    }
+
     // Cleanup on component unmount
     onUnmounted(() => {
       stopCamera()
@@ -239,7 +372,13 @@ export default {
       startCamera,
       stopCamera,
       startAnalysis,
-      stopAnalysis
+      stopAnalysis,
+      // Audio recording
+      isRecording,
+      isAnalyzingAudio,
+      latestAudioAnalysis,
+      startAudioRecording,
+      stopAudioRecording
     }
   }
 }
