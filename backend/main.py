@@ -6,6 +6,7 @@ import base64
 from openai import AzureOpenAI
 from typing import Optional
 import logging
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -131,7 +132,6 @@ Respond in JSON format with keys: emotion, body_language, details (brief descrip
         logger.info(f"Azure OpenAI response: {analysis_text}")
         
         # Try to parse as JSON, fallback to text parsing
-        import json
         try:
             # Try to extract JSON from response
             start_idx = analysis_text.find('{')
@@ -260,7 +260,6 @@ Respond in JSON format with these exact keys: emotional_state, tone, confidence,
         logger.info(f"Azure OpenAI audio response: {analysis_text}")
         
         # Try to parse as JSON
-        import json
         try:
             # Try to extract JSON from response
             start_idx = analysis_text.find('{')

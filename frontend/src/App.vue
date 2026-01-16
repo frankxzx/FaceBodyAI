@@ -138,6 +138,7 @@ export default {
     const latestAudioAnalysis = ref(null)
     let mediaRecorder = null
     let audioChunks = []
+    let audioMimeType = 'audio/webm'  // Will be set based on browser support
     
     let mediaStream = null
     let captureInterval = null
@@ -289,9 +290,13 @@ export default {
           } 
         })
         
+        // Check for supported MIME types
+        const supportedTypes = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/ogg']
+        audioMimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'audio/webm'
+        
         audioChunks = []
         mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'audio/webm'
+          mimeType: audioMimeType
         })
         
         mediaRecorder.ondataavailable = (event) => {
@@ -301,7 +306,7 @@ export default {
         }
         
         mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
+          const audioBlob = new Blob(audioChunks, { type: audioMimeType })
           await analyzeAudio(audioBlob)
           
           // Stop all tracks
@@ -335,7 +340,9 @@ export default {
         
         // Create FormData and append the audio
         const formData = new FormData()
-        formData.append('file', audioBlob, 'recording.webm')
+        // Generate filename based on actual MIME type
+        const extension = audioMimeType.split('/')[1] || 'webm'
+        formData.append('file', audioBlob, `recording.${extension}`)
         
         // Send to backend API
         const response = await axios.post('/api/audio', formData, {
