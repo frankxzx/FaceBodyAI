@@ -230,7 +230,6 @@ async def analyze_audio(file: UploadFile = File(...)):
         # Call Azure OpenAI Audio API
         response = client.chat.completions.create(
             model=AZURE_OPENAI_AUDIO_DEPLOYMENT,
-            modalities=["text"],
             messages=[
                 {
                     "role": "system",
