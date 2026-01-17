@@ -290,8 +290,9 @@ export default {
           } 
         })
         
-        // Check for supported MIME types
-        const supportedTypes = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/ogg']
+        // Azure OpenAI Audio API only supports wav and mp3
+        // Check for supported MIME types, preferring wav and mp3
+        const supportedTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/webm', 'audio/mp4', 'audio/ogg']
         audioMimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type))
         
         if (!audioMimeType) {
@@ -300,6 +301,9 @@ export default {
           stream.getTracks().forEach(track => track.stop())
           return
         }
+        
+        // Log the selected format for debugging
+        console.log('Selected audio MIME type:', audioMimeType)
         
         audioChunks = []
         mediaRecorder = new MediaRecorder(stream, {

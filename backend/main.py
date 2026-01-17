@@ -209,23 +209,22 @@ async def analyze_audio(file: UploadFile = File(...)):
         # Encode audio to base64
         base64_audio = base64.b64encode(audio_data).decode('utf-8')
         
-        # Determine audio format from content type using dictionary mapping
-        audio_format_mapping = {
-            "webm": "webm",
-            "mp3": "mp3",
-            "wav": "wav",
-            "ogg": "ogg",
-            "mp4": "mp4"
-        }
+        # Azure OpenAI Audio API only supports wav and mp3 formats
+        # Map content types to supported formats
+        audio_format = "wav"  # Default to wav
+        content_type_lower = file.content_type.lower()
         
-        # Default to wav if no match found
-        audio_format = "wav"
-        for format_key, format_value in audio_format_mapping.items():
-            if format_key in file.content_type.lower():
-                audio_format = format_value
-                break
+        if "mp3" in content_type_lower or "mpeg" in content_type_lower:
+            audio_format = "mp3"
+        elif "wav" in content_type_lower:
+            audio_format = "wav"
+        else:
+            # For unsupported formats (webm, ogg, mp4), default to wav
+            # Note: This assumes the audio data can be interpreted as wav
+            logger.warning(f"Unsupported audio format detected: {file.content_type}. Defaulting to wav.")
+            audio_format = "wav"
         
-        logger.info(f"Detected audio format: {audio_format} from content type: {file.content_type}")
+        logger.info(f"Using audio format: {audio_format} for content type: {file.content_type}")
         
         # Call Azure OpenAI Audio API
         response = client.chat.completions.create(
