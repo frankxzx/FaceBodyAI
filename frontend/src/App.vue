@@ -120,6 +120,7 @@
 <script>
 import { ref, computed, onUnmounted } from 'vue'
 import axios from 'axios'
+import Recorder from 'js-audio-recorder'
 
 export default {
   name: 'App',
@@ -136,9 +137,8 @@ export default {
     const isRecording = ref(false)
     const isAnalyzingAudio = ref(false)
     const latestAudioAnalysis = ref(null)
-    let mediaRecorder = null
-    let audioChunks = []
-    let audioMimeType = 'audio/webm'  // Will be set based on browser support
+    let recorder = null  // js-audio-recorder instance
+    let websocket = null  // WebSocket connection
     
     let mediaStream = null
     let captureInterval = null
@@ -282,78 +282,95 @@ export default {
       try {
         statusMessage.value = 'Requesting microphone access...'
         
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 44100
-          } 
+        // Initialize js-audio-recorder
+        recorder = new Recorder({
+          sampleBits: 16,      // Sample bits: 8 or 16, default: 16
+          sampleRate: 16000,   // Sample rate: 16000, 22050, 24000, 44100, 48000, default: 16000
+          numChannels: 1,      // Number of channels: 1 or 2, default: 1
         })
         
-        // Azure OpenAI Audio API only supports wav and mp3
-        // Check for supported MIME types, preferring wav and mp3
-        const supportedTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/webm', 'audio/mp4', 'audio/ogg']
-        audioMimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type))
-        
-        if (!audioMimeType) {
-          // No supported format found, show error
-          statusMessage.value = 'Error: Browser does not support audio recording'
-          stream.getTracks().forEach(track => track.stop())
-          return
-        }
-        
-        // Log the selected format for debugging
-        console.log('Selected audio MIME type:', audioMimeType)
-        
-        audioChunks = []
-        mediaRecorder = new MediaRecorder(stream, {
-          mimeType: audioMimeType
-        })
-        
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunks.push(event.data)
-          }
-        }
-        
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunks, { type: audioMimeType })
-          await analyzeAudio(audioBlob)
+        // Start recording
+        Recorder.getPermission().then(() => {
+          recorder.start()
+          isRecording.value = true
+          statusMessage.value = '🎤 Recording audio... Speak now!'
           
-          // Stop all tracks
-          stream.getTracks().forEach(track => track.stop())
-        }
-        
-        mediaRecorder.start()
-        isRecording.value = true
-        statusMessage.value = '🎤 Recording audio... Speak now!'
+          // Establish WebSocket connection
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+          const wsHost = window.location.hostname
+          const wsPort = '8000'  // Backend port
+          websocket = new WebSocket(`${wsProtocol}//${wsHost}:${wsPort}/ws/audio`)
+          
+          websocket.onopen = () => {
+            console.log('WebSocket connection established')
+          }
+          
+          websocket.onmessage = (event) => {
+            const data = JSON.parse(event.data)
+            console.log('WebSocket message:', data)
+          }
+          
+          websocket.onerror = (error) => {
+            console.error('WebSocket error:', error)
+            statusMessage.value = 'WebSocket connection error'
+          }
+          
+          websocket.onclose = () => {
+            console.log('WebSocket connection closed')
+          }
+          
+        }, (error) => {
+          console.error('Error accessing microphone:', error)
+          statusMessage.value = `Error accessing microphone: ${error.message}`
+        })
         
       } catch (error) {
-        console.error('Error accessing microphone:', error)
-        statusMessage.value = `Error accessing microphone: ${error.message}`
+        console.error('Error initializing recorder:', error)
+        statusMessage.value = `Error initializing recorder: ${error.message}`
       }
     }
 
     // Stop audio recording
-    const stopAudioRecording = () => {
-      if (mediaRecorder && isRecording.value) {
-        mediaRecorder.stop()
+    const stopAudioRecording = async () => {
+      if (recorder && isRecording.value) {
+        recorder.stop()
         isRecording.value = false
-        statusMessage.value = 'Recording stopped. Analyzing audio...'
+        statusMessage.value = 'Recording stopped. Processing audio...'
+        
+        // Get WAV audio data
+        const wavBlob = recorder.getWAVBlob()
+        
+        // Send audio data via WebSocket
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          // Convert blob to array buffer and send
+          const arrayBuffer = await wavBlob.arrayBuffer()
+          websocket.send(arrayBuffer)
+          
+          // Close WebSocket to trigger analysis
+          setTimeout(() => {
+            if (websocket) {
+              websocket.close()
+              websocket = null
+            }
+            // Analyze the audio via HTTP endpoint as fallback
+            analyzeAudioHTTP(wavBlob)
+          }, 100)
+        } else {
+          // Fallback to HTTP if WebSocket not available
+          analyzeAudioHTTP(wavBlob)
+        }
       }
     }
 
-    // Analyze audio
-    const analyzeAudio = async (audioBlob) => {
+    // Analyze audio via HTTP (fallback method)
+    const analyzeAudioHTTP = async (audioBlob) => {
       try {
         isAnalyzingAudio.value = true
         statusMessage.value = '🔄 Analyzing audio with GPT-4o Audio...'
         
         // Create FormData and append the audio
         const formData = new FormData()
-        // Generate filename based on actual MIME type
-        const extension = audioMimeType.split('/')[1] || 'webm'
-        formData.append('file', audioBlob, `recording.${extension}`)
+        formData.append('file', audioBlob, 'recording.wav')
         
         // Send to backend API
         const response = await axios.post('/api/audio', formData, {

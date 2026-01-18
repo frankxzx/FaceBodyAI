@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AzureOpenAI
 from pydantic import BaseModel
@@ -299,6 +299,95 @@ Respond in JSON format with these exact keys: emotional_state, tone, confidence,
     except Exception as e:
         logger.error(f"Error analyzing audio: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error analyzing audio: {str(e)}")
+
+@app.websocket("/ws/audio")
+async def websocket_audio_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time audio streaming and analysis.
+    Accepts audio chunks and returns analysis results.
+    """
+    await websocket.accept()
+    logger.info("WebSocket connection established for audio streaming")
+    
+    audio_buffer = bytearray()
+    
+    try:
+        while True:
+            # Receive audio data from client
+            data = await websocket.receive_bytes()
+            
+            # Accumulate audio data
+            audio_buffer.extend(data)
+            
+            # Send acknowledgment
+            await websocket.send_json({"status": "receiving", "size": len(audio_buffer)})
+            
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected, processing accumulated audio")
+        
+        # Process the accumulated audio when connection closes
+        if len(audio_buffer) > 0:
+            try:
+                # Check if Azure OpenAI client is configured
+                if not client:
+                    logger.warning("Azure OpenAI not configured")
+                    return
+                
+                # Encode audio to base64
+                base64_audio = base64.b64encode(bytes(audio_buffer)).decode('utf-8')
+                
+                # Assume wav format for WebSocket streaming
+                # js-audio-recorder typically outputs wav format
+                audio_format = "wav"
+                
+                logger.info(f"Processing {len(audio_buffer)} bytes of audio data")
+                
+                # Call Azure OpenAI Audio API
+                response = client.chat.completions.create(
+                    model=AZURE_OPENAI_AUDIO_DEPLOYMENT,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert at analyzing human voice and speech patterns. Provide detailed, accurate analysis of emotional state, tone, confidence level, and notable vocal characteristics."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": """Analyze this audio recording and provide:
+1. emotional_state: The primary emotional state conveyed (e.g., happy, sad, neutral, anxious, excited, calm, stressed)
+2. tone: The tone of voice (e.g., warm, cold, professional, casual, assertive, hesitant)
+3. confidence: Level of confidence in speech (high/medium/low)
+4. reasoning: Brief explanation of your analysis
+5. notable_vocal_cues: Any notable vocal characteristics (e.g., pitch variations, speech rate, pauses, vocal tremors, clarity)
+6. original_voice: Description of the voice characteristics (e.g., deep, high-pitched, soft, loud)
+
+Respond in JSON format with these exact keys: emotional_state, tone, confidence, reasoning, notable_vocal_cues, original_voice"""
+                                },
+                                {
+                                    "type": "input_audio",
+                                    "input_audio": {
+                                        "data": base64_audio,
+                                        "format": audio_format
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    max_tokens=500,
+                    temperature=0.3
+                )
+                
+                # Parse the response
+                analysis_text = response.choices[0].message.content
+                logger.info(f"Azure OpenAI audio response: {analysis_text}")
+                
+            except Exception as e:
+                logger.error(f"Error analyzing audio via WebSocket: {str(e)}")
+    
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
 
 @app.get("/health")
 async def health_check():
