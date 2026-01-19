@@ -54,6 +54,43 @@ class AudioAnalysisResponse(BaseModel):
     notable_vocal_cues: str
     original_voice: Optional[str] = None
 
+def validate_and_prepare_audio(audio_data: bytes, content_type: str = None) -> tuple[bytes, str]:
+    """
+    Validate and prepare audio data for GPT-4o audio API.
+    
+    Args:
+        audio_data: Raw audio data bytes
+        content_type: MIME type of the audio file
+        
+    Returns:
+        Tuple of (processed_audio_data, audio_format)
+    """
+    # Azure OpenAI Audio API supports wav and mp3 formats
+    audio_format = "wav"  # Default to wav
+    
+    if content_type:
+        content_type_lower = content_type.lower()
+        if "mp3" in content_type_lower or "mpeg" in content_type_lower:
+            audio_format = "mp3"
+            logger.info(f"Detected MP3 format from content type: {content_type}")
+        elif "wav" in content_type_lower:
+            audio_format = "wav"
+            logger.info(f"Detected WAV format from content type: {content_type}")
+        else:
+            logger.warning(f"Unsupported content type {content_type}, defaulting to WAV")
+    
+    # For WAV files, verify the header
+    if audio_format == "wav" and len(audio_data) > 44:
+        # Check for RIFF header (WAV file signature)
+        if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+            logger.info("Valid WAV file detected with RIFF header")
+        else:
+            logger.warning("WAV file missing proper RIFF header, but proceeding anyway")
+    
+    # Ensure the audio data is properly formatted
+    # GPT-4o audio API accepts the raw WAV/MP3 data as base64
+    return audio_data, audio_format
+
 @app.get("/")
 async def root():
     return {
@@ -206,25 +243,13 @@ async def analyze_audio(file: UploadFile = File(...)):
                 original_voice="N/A"
             )
         
+        # Validate and prepare audio data for GPT-4o
+        processed_audio, audio_format = validate_and_prepare_audio(audio_data, file.content_type)
+        
         # Encode audio to base64
-        base64_audio = base64.b64encode(audio_data).decode('utf-8')
+        base64_audio = base64.b64encode(processed_audio).decode('utf-8')
         
-        # Azure OpenAI Audio API only supports wav and mp3 formats
-        # Map content types to supported formats
-        audio_format = "wav"  # Default to wav
-        content_type_lower = file.content_type.lower()
-        
-        if "mp3" in content_type_lower or "mpeg" in content_type_lower:
-            audio_format = "mp3"
-        elif "wav" in content_type_lower:
-            audio_format = "wav"
-        else:
-            # For unsupported formats (webm, ogg, mp4), default to wav
-            # Note: This assumes the audio data can be interpreted as wav
-            logger.warning(f"Unsupported audio format detected: {file.content_type}. Defaulting to wav.")
-            audio_format = "wav"
-        
-        logger.info(f"Using audio format: {audio_format} for content type: {file.content_type}")
+        logger.info(f"Uploading {len(processed_audio)} bytes as {audio_format} format to GPT-4o audio API")
         
         # Call Azure OpenAI Audio API
         response = client.chat.completions.create(
@@ -333,14 +358,13 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                     logger.warning("Azure OpenAI not configured")
                     return
                 
+                # Validate and prepare audio data for GPT-4o
+                processed_audio, audio_format = validate_and_prepare_audio(bytes(audio_buffer))
+                
                 # Encode audio to base64
-                base64_audio = base64.b64encode(bytes(audio_buffer)).decode('utf-8')
+                base64_audio = base64.b64encode(processed_audio).decode('utf-8')
                 
-                # Assume wav format for WebSocket streaming
-                # js-audio-recorder typically outputs wav format
-                audio_format = "wav"
-                
-                logger.info(f"Processing {len(audio_buffer)} bytes of audio data")
+                logger.info(f"Processing {len(processed_audio)} bytes as {audio_format} format via WebSocket")
                 
                 # Call Azure OpenAI Audio API
                 response = client.chat.completions.create(
